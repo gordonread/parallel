@@ -1,0 +1,116 @@
+#!/bin/bash
+jobs=$(nproc)
+load=""
+stop="-k"
+quiet=""
+keepgoing=""
+files=""
+command=""
+null=""
+dryrun=""
+
+usage() {
+    args=""
+    short=$(echo ${short} | sed -s "s/://g")
+    n=0
+    for arg in $(echo ${long} | sed -e "s/,/ /g"); do
+        args=${args}"\n  "$(echo "-${short:$n:1}|--${arg}                                     " | sed -e "s/:/ \[arg\]/g" | cut -c-20)" ${description[$n]}"
+        n=$(($n+1))
+    done
+    echo -ne "Usage: ${0##*/} [options] <command> [files]s--files\n\n${info}\nOptions:${args}\n" 1>&2
+    exit 2
+}
+
+short="h0j:l:skc:f:qn"
+long="help,null,jobs:,load:,stop,keep-going,command:,files:,quiet,dry-run"
+description=("Display this help" "Input items separated by null" "Number of jobs, default ${jobs}", "Maximum load", "Stop if a command errors", "Keep going even if command fails" "Run command given..." "... On these items" "Don't echo commands" "Dry run - print but don't execute commands")
+info="Run command on items in stdin or following in parallel. File optionally represented in command with {}\n\nls | ${0##*/} gzip\nls *.gz | ${0##*/} --quiet --jobs 20 gzip -d\n${0##*/} --command \"gzip -d\" --files \"*.gz\"\n${0##*/} gzip -d *.gz\nfind . -type f -print0 | ${0##*/} -0 gzip\nls bzip2.* | ${0##*/} ls -l {} \; gzip -v {} \; ls -l {}.gz\n"
+options=$(getopt --options +${short} --longoptions ${long} --name "${0##*/}" --quiet -- "$@")
+[[ $? -eq 0 ]] && eval set -- "${options}"
+
+while true; do
+    case ${1} in
+	-0|--null) null=1;;
+        -j|--jobs) jobs="${2}"; shift;;
+        -l|--load) load="-l ${2}"; shift;;
+        -s|--stop) stop="";;
+        -k|--keep-going) keepgoing="|| true";;
+        -c|--command) command="${2}"; shift;;
+        -f|--files) files="${2}"; shift;;
+        -q|--quiet) quiet="-s";;
+	-n|--dry-run) dryrun="-n";;
+        --) shift; break;;
+        -*) usage; exit 2;;
+	*) break;
+    esac
+    shift
+done
+
+tmp=$(mktemp -d -t ${0##*/}.XXXXXX)
+touch ${tmp}
+[[ -z ${KEEPMK} ]] && trap "[[ -f ${tmp} ]] && rm -rf ${tmp}" EXIT
+
+if [[ -z ${command} ]]; then
+    command="${@}"
+fi
+
+if [[ -z ${command} ]]; then
+    echo "Error: Command missing" 1>&2
+    usage
+    exit 2
+fi
+
+if [[ -z ${files} ]]; then
+    cmd=""
+    gotcmd=
+    for p in ${command}; do
+	if [[ -z ${gotcmd} ]] && [[ ! -a ${p} ]]; then
+	    [[ -z ${cmd} ]] && cmd="${p}" || cmd="${cmd} ${p}"
+        else
+	    gotcmd=1
+	    files="${files} ${p}"
+	fi
+    done
+    command=${cmd}
+fi
+
+if [[ -z ${files} ]]; then
+    if [[ -p /dev/stdin ]]; then
+	while read ${null:+-d $'\0'} line; do
+	    echo ${line}
+	done
+    else
+	cat -
+    fi
+else
+    for file in ${files}; do
+	echo ${file}
+    done
+fi | sed -e "s/ /\\\\\\\\ /g" > ${tmp}/files
+
+(
+    [[ ! ${command} =~ "{}" ]] && command="${command} {}"
+    while read -r file; do
+	echo "(${command//\{\}/${file}})" ${keepgoing}
+    done < ${tmp}/files
+    
+) >${tmp}/commands
+
+ncommands=$(($(cat ${tmp}/commands | wc -l)))
+
+(
+    printf "SHELL:=/bin/bash\n\n"
+    printf ".PHONY: all\n"
+    printf "all: $(seq -s' ' 1 ${ncommands})\n"
+    printf "\n"
+    c=1
+    cat ${tmp}/commands | while read -r command; do
+        printf ".PHONY: ${c}\n"
+        printf "${c}:\n"
+        printf "\t${command}\n"
+        printf "\n"
+        c=$(($c+1))
+    done
+) > ${tmp}/makefile
+
+make -j ${jobs} ${load} ${stop} ${quiet} ${dryrun} -f ${tmp}/makefile all
