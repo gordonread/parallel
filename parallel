@@ -3,7 +3,6 @@ jobs=$(nproc)
 load=""
 stop="-k"
 quiet=""
-keepgoing=""
 files=""
 command=""
 null=""
@@ -17,7 +16,7 @@ usage() {
         args=${args}"\n  "$(echo "-${short:$n:1}|--${arg}                                     " | sed -e "s/:/ \[arg\]/g" | cut -c-20)" ${description[$n]}"
         n=$(($n+1))
     done
-    echo -ne "Usage: ${0##*/} [options] <command> [files]s--files\n\n${info}\nOptions:${args}\n" 1>&2
+    echo -ne "Usage: ${0##*/} [options] [command [args]] [files]\n\n${info}\nOptions:${args}\n" 1>&2
     exit 2
 }
 
@@ -34,7 +33,7 @@ while true; do
         -j|--jobs) jobs="${2}"; shift;;
         -l|--load) load="-l ${2}"; shift;;
         -s|--stop) stop="";;
-        -k|--keep-going) keepgoing="|| true";;
+        -k|--keep-going) stop="-k";;
         -c|--command) command="${2}"; shift;;
         -f|--files) files="${2}"; shift;;
         -q|--quiet) quiet="-s";;
@@ -48,7 +47,7 @@ done
 
 tmp=$(mktemp -d -t ${0##*/}.XXXXXX)
 touch ${tmp}
-[[ -z ${KEEPMK} ]] && trap "[[ -f ${tmp} ]] && rm -rf ${tmp}" EXIT
+[[ -z ${KEEPMK} ]] && trap "[[ -d ${tmp} ]] && rm -rf ${tmp}" EXIT
 
 if [[ -z ${command} ]]; then
     command="${@}"
@@ -91,7 +90,7 @@ fi | sed -e "s/ /\\\\\\\\ /g" > ${tmp}/files
 (
     [[ ! ${command} =~ "{}" ]] && command="${command} {}"
     while read -r file; do
-	echo "(${command//\{\}/${file}})" ${keepgoing}
+	echo "${command//\{\}/${file}}"
     done < ${tmp}/files
     
 ) >${tmp}/commands
@@ -100,12 +99,11 @@ ncommands=$(($(cat ${tmp}/commands | wc -l)))
 
 (
     printf "SHELL:=/bin/bash\n\n"
-    printf ".PHONY: all\n"
+    printf ".PHONY: all $(seq -s' ' 1 ${ncommands})\n"
     printf "all: $(seq -s' ' 1 ${ncommands})\n"
     printf "\n"
     c=1
     cat ${tmp}/commands | while read -r command; do
-        printf ".PHONY: ${c}\n"
         printf "${c}:\n"
         printf "\t${command}\n"
         printf "\n"
