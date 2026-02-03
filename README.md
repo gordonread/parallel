@@ -32,7 +32,7 @@ Can be used in a similar way to xargs by piping the result of a command to `para
 
 | Command | Description |
 | ------- | ----------- |
-| `ls | parallel gzip` | List all files in current directory and gzip them in parallel, result is the same as running `bzip *`, however`bzip` will be run in parallel for each individual file, not one after the other. bzipping in paralle is *usually) much quicker |
+| `ls \| parallel gzip` | List all files in current directory and gzip them in parallel, result is the same as running `bzip *`, however`bzip` will be run in parallel for each individual file, not one after the other. bzipping in paralle is *usually) much quicker |
 | `parallel gzip *` | Run `bzip` on all files, bzip will be run in parallel for each individual file, not one after the other |
-| `find . -name \*.cpp | parallel bzip` | All files located by the find command will be compressed by `bzip` |
-| `find . -name \*.cpp -print0 | parallel -0 bzip` | As above, find uses the separator `\0` and parallel will also use the separator `\0` - similar to `xargs -0` |
+| `find . -name \*.cpp \| parallel bzip` | All files located by the find command will be compressed by `bzip` |
+| `find . -name \*.cpp -print0 \| parallel -0 bzip` | As above, find uses the separator `\0` and parallel will also use the separator `\0` - similar to `xargs -0` |
